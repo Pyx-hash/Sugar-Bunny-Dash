@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sugar Bunny Dash 🐰</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Quicksand', sans-serif;
+            touch-action: none; /* Prevents scrolling on mobile while playing */
+            overflow: hidden;
+        }
+        
+        /* Custom Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        @keyframes wiggle {
+            0%, 100% { transform: rotate(-3deg); }
+            50% { transform: rotate(3deg); }
+        }
+
+        @keyframes pop {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-wiggle { animation: wiggle 0.5s ease-in-out infinite; }
+        
+        .game-item {
+            position: absolute;
+            will-change: top, left;
+            transition: transform 0.1s;
+        }
+
+        /* Glassmorphism utility */
+        .glass {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-b from-pink-100 via-purple-100 to-blue-100 h-screen w-screen relative select-none">
+
+    <div class="absolute top-10 left-10 text-6xl opacity-40 animate-float" style="animation-delay: 0s;">☁️</div>
+    <div class="absolute top-20 right-20 text-5xl opacity-30 animate-float" style="animation-delay: 1s;">☁️</div>
+    <div class="absolute top-1/3 left-1/4 text-4xl opacity-20 animate-float" style="animation-delay: 2s;">✨</div>
+
+    <div class="absolute top-0 left-0 w-full p-4 flex justify-between items-start z-50">
+        <div class="glass rounded-2xl px-6 py-2 text-pink-500 font-bold shadow-sm flex flex-col items-center">
+            <span class="text-xs uppercase tracking-widest opacity-70">Score</span>
+            <span id="scoreDisplay" class="text-3xl">0</span>
+        </div>
+        
+        <div id="livesDisplay" class="flex gap-1 text-2xl">
+            <span>❤️</span><span>❤️</span><span>❤️</span>
+        </div>
+    </div>
+
+    <div id="gameArea" class="absolute inset-0 overflow-hidden">
+        <div id="player" class="absolute bottom-4 text-6xl transition-transform duration-75 cursor-pointer z-40" style="left: 50%; transform: translateX(-50%);">
+            🐰
+        </div>
+    </div>
+
+    <div id="startScreen" class="absolute inset-0 flex flex-col items-center justify-center z-50 bg-white/30 backdrop-blur-sm">
+        <div class="glass p-8 rounded-3xl text-center shadow-xl animate-float max-w-sm mx-4">
+            <h1 class="text-4xl font-bold text-pink-500 mb-2">Sugar Bunny Dash</h1>
+            <p class="text-slate-600 mb-6 font-semibold">Catch the sweets 🍬<br>Avoid the veggies 🥦</p>
+            <button onclick="startGame()" class="bg-gradient-to-r from-pink-400 to-purple-400 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 hover:shadow-pink-300/50 active:scale-95">
+                Play Now!
+            </button>
+        </div>
+    </div>
+
+    <div id="gameOverScreen" class="hidden absolute inset-0 flex flex-col items-center justify-center z-50 bg-red-50/80 backdrop-blur-md">
+        <div class="glass p-8 rounded-3xl text-center shadow-xl max-w-sm mx-4">
+            <div class="text-6xl mb-4">😿</div>
+            <h2 class="text-3xl font-bold text-slate-700 mb-1">Oh no!</h2>
+            <p class="text-slate-500 mb-4">You hit too many veggies.</p>
+            
+            <div class="bg-white/50 rounded-xl p-4 mb-6">
+                <p class="text-sm text-slate-500 uppercase tracking-wide">Final Score</p>
+                <p id="finalScore" class="text-5xl font-bold text-pink-500">0</p>
+            </div>
+
+            <button onclick="startGame()" class="bg-gradient-to-r from-blue-400 to-teal-400 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 hover:shadow-blue-300/50 active:scale-95">
+                Try Again
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Config ---
+        const config = {
+            speed: 3,           // Starting falling speed
+            spawnRate: 1000,    // Milliseconds between spawns
+            playerSpeed: 0.15,  // Smoothing factor for player movement
+            goodItems: ['🍬', '🍓', '🧁', '🍩', '🍪', '🍭'],
+            badItems: ['🥦', '🧅', '🥕', '🥔'],
+            colors: ['text-pink-400', 'text-purple-400', 'text-blue-400', 'text-yellow-400']
+        };
+
+        // --- State Variables ---
+        let state = {
+            isPlaying: false,
+            score: 0,
+            lives: 3,
+            items: [],          // Stores active DOM elements
+            lastTime: 0,
+            spawnTimer: 0,
+            difficultyMultiplier: 1,
+            mouseX: window.innerWidth / 2,
+            playerX: window.innerWidth / 2
+        };
+
+        // --- DOM Elements ---
+        const player = document.getElementById('player');
+        const gameArea = document.getElementById('gameArea');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const livesDisplay = document.getElementById('livesDisplay');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScore = document.getElementById('finalScore');
+
+        // --- Event Listeners ---
+        // Mouse movement
+        window.addEventListener('mousemove', (e) => {
+            if(state.isPlaying) state.mouseX = e.clientX;
+        });
+
+        // Touch movement
+        window.addEventListener('touchmove', (e) => {
+            if(state.isPlaying) {
+                state.mouseX = e.touches[0].clientX;
+            }
+        }, { passive: true });
+
+        // --- Game Logic ---
+
+        function startGame() {
+            // Reset State
+            state.isPlaying = true;
+            state.score = 0;
+            state.lives = 3;
+            state.items.forEach(item => item.element.remove());
+            state.items = [];
+            state.difficultyMultiplier = 1;
+            state.spawnTimer = 0;
+            
+            // UI Updates
+            scoreDisplay.innerText = '0';
+            updateLives();
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            player.classList.remove('grayscale');
+            
+            // Start Loop
+            requestAnimationFrame(gameLoop);
+        }
+
+        function gameOver() {
+            state.isPlaying = false;
+            finalScore.innerText = state.score;
+            gameOverScreen.classList.remove('hidden');
+            player.classList.add('grayscale');
+        }
+
+        function updateLives() {
+            livesDisplay.innerHTML = '';
+            for(let i=0; i<3; i++) {
+                if(i < state.lives) livesDisplay.innerHTML += '<span>❤️</span>';
+                else livesDisplay.innerHTML += '<span class="opacity-30 grayscale">💔</span>';
+            }
+        }
+
+        function spawnItem() {
+            const isGood = Math.random() > 0.3; // 70% chance of good item
+            const content = isGood 
+                ? config.goodItems[Math.floor(Math.random() * config.goodItems.length)]
+                : config.badItems[Math.floor(Math.random() * config.badItems.length)];
+            
+            const el = document.createElement('div');
+            el.innerText = content;
+            el.className = `game-item text-4xl absolute`;
+            
+            // Random horizontal position (with padding so it doesn't spawn off-screen)
+            const x = Math.random() * (window.innerWidth - 60) + 30;
+            el.style.left = `${x}px`;
+            el.style.top = '-50px';
+
+            gameArea.appendChild(el);
+
+            state.items.push({
+                element: el,
+                x: x,
+                y: -50,
+                speed: (Math.random() * 2 + config.speed) * state.difficultyMultiplier,
+                isGood: isGood,
+                active: true
+            });
+        }
+
+        function createParticles(x, y, emoji) {
+            const particle = document.createElement('div');
+            particle.innerText = emoji; // Show score or sparkle
+            particle.className = 'absolute text-2xl font-bold text-pink-500 pointer-events-none';
+            particle.style.left = `${x}px`;
+            particle.style.top = `${y}px`;
+            particle.style.animation = 'pop 0.5s ease-out forwards';
+            gameArea.appendChild(particle);
+            
+            setTimeout(() => particle.remove(), 500);
+        }
+
+        function gameLoop(timestamp) {
+            if (!state.isPlaying) return;
+
+            const deltaTime = timestamp - state.lastTime;
+            state.lastTime = timestamp;
+
+            // 1. Update Player Position (Smooth Lerp)
+            // Linear interpolation to make movement feel "weighty" and cute
+            state.playerX += (state.mouseX - state.playerX) * config.playerSpeed;
+            
+            // Clamp player within screen
+            const playerWidth = 60;
+            if (state.playerX < playerWidth/2) state.playerX = playerWidth/2;
+            if (state.playerX > window.innerWidth - playerWidth/2) state.playerX = window.innerWidth - playerWidth/2;
+
+            player.style.left = `${state.playerX}px`;
+
+            // Tilt the bunny based on movement direction
+            const tilt = (state.mouseX - state.playerX) * 0.1;
+            player.style.transform = `translateX(-50%) rotate(${Math.max(-20, Math.min(20, tilt))}deg)`;
+
+            // 2. Spawn Items
+            state.spawnTimer += deltaTime;
+            // Decrease spawn interval as score goes up
+            const currentSpawnRate = Math.max(400, config.spawnRate - (state.score * 10));
+            
+            if (state.spawnTimer > currentSpawnRate) {
+                spawnItem();
+                state.spawnTimer = 0;
+            }
+
+            // 3. Update Items & Collision
+            const playerRect = player.getBoundingClientRect();
+            // Shrink hitbox slightly to be forgiving
+            const hitBox = {
+                left: playerRect.left + 15,
+                right: playerRect.right - 15,
+                top: playerRect.top + 15,
+                bottom: playerRect.bottom - 10
+            };
+
+            for (let i = state.items.length - 1; i >= 0; i--) {
+                const item = state.items[i];
+                
+                // Move item
+                item.y += item.speed;
+                item.element.style.top = `${item.y}px`;
+
+                // Collision Check
+                const itemRect = item.element.getBoundingClientRect();
+                
+                const hasCollision = !(
+                    itemRect.bottom < hitBox.top || 
+                    itemRect.top > hitBox.bottom || 
+                    itemRect.right < hitBox.left || 
+                    itemRect.left > hitBox.right
+                );
+
+                if (hasCollision && item.active) {
+                    item.active = false;
+                    item.element.remove();
+                    state.items.splice(i, 1);
+
+                    if (item.isGood) {
+                        // Success!
+                        state.score += 10;
+                        scoreDisplay.innerText = state.score;
+                        createParticles(item.x, item.y, '+10');
+                        
+                        // Increase difficulty
+                        if(state.score % 50 === 0) {
+                            state.difficultyMultiplier += 0.1;
+                        }
+                    } else {
+                        // Fail!
+                        state.lives--;
+                        updateLives();
+                        createParticles(item.x, item.y, '💢');
+                        gameArea.classList.add('bg-red-50');
+                        setTimeout(() => gameArea.classList.remove('bg-red-50'), 100);
+
+                        if (state.lives <= 0) {
+                            gameOver();
+                        }
+                    }
+                    continue;
+                }
+
+                // Remove if off screen
+                if (item.y > window.innerHeight) {
+                    item.element.remove();
+                    state.items.splice(i, 1);
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
